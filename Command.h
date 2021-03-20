@@ -18,6 +18,8 @@
 
 // Defines JSON keys for command values
 #define	KEY_CMD						"cmd"
+#define KEY_KEY						"k"
+#define KEY_VALUE					"v"
 #define KEY_STRING					"t"
 #define KEY_X						"x"
 #define KEY_Y						"y"
@@ -41,17 +43,17 @@
 #define KEY_SHOW					"s"
 #define KEY_ON_DURATION				"don"
 #define KEY_OFF_DURATION			"doff"
-#define KEY_INDEX					"i"
+#define KEY_INDEX					"in"
 #define KEY_STATUS					"status"
 
 // Sample command using all the fields -- NOT all the values are valid!
-// {\"cmd\": 2, \"t\": \"test string\", \"x\":1, "\y":2, \"x1\":111, "\y1":112, \"x2\":211, "\y2":212, \"w\":3, \"h\":4, "r":5, \"c\":6, \"fg\":601, \"bg\":602, \"st\":7, \"ss\":8, \"sc\":9, \"sp\":10, \"r\":11, \"d\":12, \"i\":13, \"s\":14, \"don\":15, \"doff\":16, \"i\":17}
+// {\"cmd\": 2, \"k\": \"test key\", \"v\": \"test value\",\"t\": \"test string\", \"x\":1, "\y":2, \"x1\":111, "\y1":112, \"x2\":211, "\y2":212, \"w\":3, \"h\":4, "r":5, \"c\":6, \"fg\":601, \"bg\":602, \"st\":7, \"ss\":8, \"sc\":9, \"sp\":10, \"r\":11, \"d\":12, \"i\":13, \"s\":14, \"don\":15, \"doff\":16, \"in\":17}
 // {\"cmd\": 22, \"t\": \"%s\", \"x\":0, "\y":31, \"c\":0xffffff, \"sp\":10, \"d\":1}
 // {\"cmd\": 22, \"t\": \"%s\", \"x\":0, "\y":31, \"fg":0xffffff, \"bg":0x00ff00, \"sp\":10, \"d\":1}
 
 
 // Commands
-enum CommandEnum { Clear=0x01, Show=0x02, SetPixel=0x10, Text=0x11, Line=0x012, Rectangle=0x13, Circle=0x14, RandomFill=0x15, Scroll=0x16, SetImage=0x17, Animate=0x18, SetIntensity=0x30, Response=0x50 };
+enum CommandEnum { Clear=0x01, Show=0x02, SetPixel=0x10, Text=0x11, Line=0x012, Rectangle=0x13, Circle=0x14, RandomFill=0x15, Scroll=0x16, SetImage=0x17, Animate=0x18, SetIntensity=0x30, SetConfigValue=0x40, Response=0x90 };
 
 // Return Codes
 enum ResponseCodesEnum {Success=0x00, General_Failure=0x01, Unknown_Argument=0x02, Out_of_Bounds=0x03 };
@@ -82,6 +84,10 @@ public:
 	CommandEnum getCommand() const;
 	void setCommand(CommandEnum command);
 
+	uint8_t* getKey();
+	void setKey(uint8_t* k);
+	uint8_t* getValue();
+	void setValue(uint8_t* v);
 	uint8_t* getText();
 	void setText(uint8_t* s);
 	uint8_t getX() const;
@@ -136,6 +142,8 @@ public:
 private:
 	CommandEnum command;
 	uint8_t text[CMD_STRING_SIZE];
+	uint8_t key[CMD_STRING_SIZE];
+	uint8_t value[CMD_STRING_SIZE];
 	uint8_t x;
 	uint8_t y;
 	uint8_t x1;

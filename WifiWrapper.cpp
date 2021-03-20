@@ -60,47 +60,11 @@ WifiStatusCode WifiWrapper::initializeWifi()
 
 	//	WL_NO_SSID_AVAIL
 
-
 	status = toWifiStatusCode(WiFi.status());
 	if (status == WifiStatusCode::CONNECTED)
 	{
 		Serial.print(F(" Connected: "));
 		LOG_DEBUG(WiFi.localIP());
-
-		// pause after configuring WIFI
-		//Helper::delayYield(250); // Give time to ESP
-
-//		LOG_DEBUG(F("Setting up OTA..."));
-//
-//		sprintf(hostname, "lednode-%i", config->getNodeId() );
-//
-//		ArduinoOTA.setHostname(hostname);
-//
-//		ArduinoOTA.onStart([]() {
-//			LOG_DEBUG("OTA Start");
-//			setStatus(Uploading);
-//		});
-//
-//		ArduinoOTA.onEnd([]() {
-//			LOG_DEBUG("OTA End");
-//			LOG_DEBUG("Rebooting...");
-//		});
-//
-//		ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-//			Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
-//			// TODO - put LED flash here or call back
-//		});
-//
-//		ArduinoOTA.onError([](ota_error_t error) {
-//			Serial.printf("Error[%u]: ", error);
-//			if (error == OTA_AUTH_ERROR) LOG_DEBUG("Auth Failed");
-//			else if (error == OTA_BEGIN_ERROR) LOG_DEBUG("Begin Failed");
-//			else if (error == OTA_CONNECT_ERROR) LOG_DEBUG("Connect Failed");
-//			else if (error == OTA_RECEIVE_ERROR) LOG_DEBUG("Receive Failed");
-//			else if (error == OTA_END_ERROR) LOG_DEBUG("End Failed");
-//		});
-//		ArduinoOTA.begin();
-
 	}
 	else
 	{
@@ -125,8 +89,6 @@ WifiStatusCode WifiWrapper::initializeAP(Configuration *config)
 		LOG_DEBUG(F("ERROR - configuration object not defined."));
 		return WifiStatusCode::NO_CONFIG;
 	}
-
-
 	return status;
 }
 

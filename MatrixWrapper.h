@@ -56,7 +56,6 @@ public:
     void scrollText(uint8_t x, uint8_t y, uint32_t fg, uint32_t bg, uint32_t speed, int16_t repeat, DirectionEnum direction, uint8_t *);
 
     // TODO - fix image index code
-    void drawImage(ImageEnum index, boolean show);
     void drawImage(char *fileName, boolean show);
     void drawImage(char *filename, uint8_t x, uint8_t y, boolean show);
 

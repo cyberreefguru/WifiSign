@@ -64,7 +64,7 @@
 
 enum class ConfigStatusCode {OK, FILE_SYSTEM_NOT_INITIALIZED, FILE_SYSTEM_NOT_DEFINED, FILE_NOT_FOUND,
 	FILE_NOT_OPENED, FILE_NOT_OPEN_WRITE, FILE_NOT_DELETED, BUFFER_MEMORY_ERROR, SERIALIZE_ERROR, DESERIALIZE_ERROR,
-	UNMATCHED_VERSION, UNKNOWN };
+	UNMATCHED_VERSION, KEY_NOT_DEFINED, VALUE_NOT_DEFINED, UNKNOWN_KEY, ILLEGAL_VALUE, FAIL, UNKNOWN };
 
 
 class Configuration
@@ -132,6 +132,9 @@ public:
 	ConfigStatusCode read();
 	void dump();
 	void dumpConfigFile();
+
+	ConfigStatusCode setConfigurationValue(uint8_t *key, uint8_t *value);
+
 
 protected:
 	uint8_t version;

@@ -8,6 +8,7 @@
 #include "PortalWebServer.h"
 
 WiFiServer 	wifiServer(80);
+DNSServer 	dnsServer;
 
 /**
  * Default constructor
@@ -18,7 +19,19 @@ PortalWebServer::PortalWebServer()
 	currentMethod = HttpMethod::GET;
 	currentUri = "";
 	wifiStatus = WL_IDLE_STATUS;
-	myConfig.initialize(false);
+	config = NULL;
+}
+
+/**
+ * Constructor
+ *
+ */
+PortalWebServer::PortalWebServer(Configuration *config)
+{
+	currentMethod = HttpMethod::GET;
+	currentUri = "";
+	wifiStatus = WL_IDLE_STATUS;
+	this->config = config;
 }
 
 /**
@@ -29,58 +42,110 @@ PortalWebServer::~PortalWebServer()
 {
 }
 
-
-void PortalWebServer::setConfiguration(Configuration &config)
+/**
+ * Sets config using the values found in the form post
+ *
+ */
+void PortalWebServer::setConfiguration(Configuration *config)
 {
-	if( currentParameterSize > 0)
-	{
-		LOG_DEBUG("Setting parameters");
-		config.setVersion( DEFAULT_VERSION );//***
-		config.setNodeId( myConfig.getNodeId() );//***
-		config.setHostName(  (uint8_t *)myConfig.getHostName() );
-		config.setAPName(  (uint8_t *)myConfig.getAPName() ); //***
-		config.setWifiSsid(  (uint8_t *)myConfig.getWifiSsid() );
-		config.setWifiPassword(  (uint8_t *)myConfig.getWifiPassword() );
-		config.setWebPort(  myConfig.getWebPort() ); //***
-		config.setWifiTries(  myConfig.getWifiTries() ); //***
-		config.setMqttServer(  (uint8_t *)myConfig.getMqttServer() );
-		config.setMqttUser(  (uint8_t *)myConfig.getMqttUser() );
-		config.setMqttPassword(  (uint8_t *)myConfig.getMqttPassword() );
-		config.setMqttPort(  myConfig.getMqttPort() );
-		config.setMqttTries(  myConfig.getMqttTries() ); //***
-		config.setMyChannel(  (uint8_t *)myConfig.getMyChannel() );
-		config.setRegistrationChannel(  (uint8_t *)myConfig.getRegistrationChannel() );
-		config.setMyResponseChannel(  (uint8_t *)myConfig.getMyResponseChannel() );
-		config.setAllChannel(  (uint8_t *)myConfig.getAllChannel() );
-	}
-	else
-	{
-		LOG_ERROR("No parameters to set");
-	}
+	this->config = config;
 }
+
+/**
+ * Stops communication with client and disconnects from wifi
+ */
+void PortalWebServer::stop()
+{
+	if(currentClient)
+	{
+		currentClient.stop();
+	}
+	WiFi.disconnect();
+}
+
+///**
+// * Sets config using the values found in the form post
+// *
+// */
+//void PortalWebServer::setConfiguration(Configuration &config)
+//{
+//	if( currentParameterSize > 0)
+//	{
+//		LOG_DEBUG("Setting parameters");
+//		config.setVersion( DEFAULT_VERSION );//***
+//		config.setNodeId( myConfig.getNodeId() );//***
+//		config.setHostName(  (uint8_t *)myConfig.getHostName() );
+//		config.setAPName(  (uint8_t *)myConfig.getAPName() ); //***
+//		config.setWifiSsid(  (uint8_t *)myConfig.getWifiSsid() );
+//		config.setWifiPassword(  (uint8_t *)myConfig.getWifiPassword() );
+//		config.setWebPort(  myConfig.getWebPort() ); //***
+//		config.setWifiTries(  myConfig.getWifiTries() ); //***
+//		config.setMqttServer(  (uint8_t *)myConfig.getMqttServer() );
+//		config.setMqttUser(  (uint8_t *)myConfig.getMqttUser() );
+//		config.setMqttPassword(  (uint8_t *)myConfig.getMqttPassword() );
+//		config.setMqttPort(  myConfig.getMqttPort() );
+//		config.setMqttTries(  myConfig.getMqttTries() ); //***
+//		config.setMyChannel(  (uint8_t *)myConfig.getMyChannel() );
+//		config.setRegistrationChannel(  (uint8_t *)myConfig.getRegistrationChannel() );
+//		config.setMyResponseChannel(  (uint8_t *)myConfig.getMyResponseChannel() );
+//		config.setAllChannel(  (uint8_t *)myConfig.getAllChannel() );
+//	}
+//	else
+//	{
+//		LOG_ERROR("No parameters to set");
+//	}
+//}
 
 
 PortalStatusCode PortalWebServer::setupPortal()
 {
 	PortalStatusCode status = PortalStatusCode::FAIL;
+
+	//Initialize serial and wait for port to open:
+	LOG_INFO(F("Setting up Web Server"));
+
+	// check for the WiFi module:
+	if (WiFi.status() == WL_NO_MODULE)
+	{
+		LOG_ERROR(F("Communication with WiFi module failed!"));
+		status = PortalStatusCode::NO_WIFI_MODULE;
+	}
+	else
+	{
+		String fv = WiFi.firmwareVersion();
+		if (fv < "1.0.0")
+		{
+			LOG_ERROR(F("Please upgrade the firmware"));
+			status = PortalStatusCode::WIFI_VERSION_ERROR;
+		}
+		else
+		{
+			if( WiFi.status() == WL_CONNECTED )
+			{
+				wifiServer.begin();
+				if( wifiServer.status() )
+				{
+					LOG_INFO1("Connected to WIFI: ", WiFi.localIP());
+					status = PortalStatusCode::SUCCESS;
+				}
+				else
+				{
+					LOG_ERROR("Server not connected to WIFI!");
+					status = PortalStatusCode::SERVER_NOT_CONNECTED;
+				}
+			}
+			else
+			{
+				LOG_ERROR("Not connected to WIFI!");
+				status = PortalStatusCode::NOT_CONNECTED;
+			}
+
+		} // end if version error
+
+	} // end no module
+
 	return status;
 }
-
-
-PortalStatusCode PortalWebServer::handlePortalClient()
-{
-	PortalStatusCode status = PortalStatusCode::FAIL;
-	return status;
-}
-
-
-PortalStatusCode PortalWebServer::handlePortalRequest()
-{
-	PortalStatusCode status = PortalStatusCode::FAIL;
-	return status;
-}
-
-
 
 PortalStatusCode PortalWebServer::setupCaptivePortal()
 {
@@ -144,6 +209,15 @@ PortalStatusCode PortalWebServer::setupCaptivePortal()
 		status = PortalStatusCode::DNS_ERROR;
 	}
 
+	if( status == PortalStatusCode::SUCCESS )
+	{
+		LOG_INFO("Setting captive portal flag to true.");
+		isCaptive = true;
+	}
+	else
+	{
+		LOG_ERROR("Unable to establish captive portal!");
+	}
 	return status;
 
 }
@@ -162,18 +236,17 @@ PortalStatusCode PortalWebServer::runCaptivePortal()
 	if( status == PortalStatusCode::SUCCESS )
 	{
 		LOG_INFO("Waiting for client connections.");
+
+		// In captive mode, we loop here until client
+		// disconnects or request is processed
 		while(1)
 		{
 			status = handleCaptiveClient();
-			if(status == PortalStatusCode::CONFIG_SUCCESS )
+			if(status == PortalStatusCode::CONFIG_SUCCESS || status == PortalStatusCode::CONFIG_FAIL)
 			{
 				currentClient.stop();
 				WiFi.disconnect();
 				break;
-			}
-			else if(status == PortalStatusCode::CONFIG_FAIL)
-			{
-				LOG_ERROR("Error processing client request");
 			}
 		}
 	}
@@ -185,6 +258,10 @@ PortalStatusCode PortalWebServer::runCaptivePortal()
 	return status;
 }
 
+/**
+ * Handles captive portal client. Ensures AP is listening and
+ * waits for a client connection.
+ */
 PortalStatusCode PortalWebServer::handleCaptiveClient()
 {
 	PortalStatusCode status = PortalStatusCode::FAIL;
@@ -197,11 +274,18 @@ PortalStatusCode PortalWebServer::handleCaptiveClient()
 
 		if (wifiStatus == WL_AP_CONNECTED)
 		{
+			status = PortalStatusCode::DEVICE_CONNECTED;
 			LOG_INFO(F("Device connected to AP"));
+		}
+		else if( wifiStatus == WL_AP_LISTENING )
+		{
+			status = PortalStatusCode::AP_LISTENING;
+			LOG_INFO(F("AP listening"));
 		}
 		else
 		{
-			// a device has disconnected from the AP, and we are back in listening mode
+			// a device has disconnected from the AP
+			status = PortalStatusCode::NO_DEVICE;
 			LOG_INFO(F("Device disconnected from AP"));
 		}
 	}
@@ -211,15 +295,15 @@ PortalStatusCode PortalWebServer::handleCaptiveClient()
 	{
 		LOG_INFO(F("New Client"));
 		currentClient = client;
+		status = PortalStatusCode::CLIENT_CONNECTED;
 
 		while( currentClient.connected() )
 		{
 			if (currentClient.available())
 			{
-				boolean parse = parseRequest();
+				boolean parse = parseHttpRequest();
 				if (parse == true)
 				{
-
 					status = handleCaptiveRequest();
 
 				} // end if parse
@@ -235,15 +319,120 @@ PortalStatusCode PortalWebServer::handleCaptiveClient()
 		} // end if connected
 
 		// TODO - is this an error condition?
-		LOG_INFO("Client disconnected.");
+		LOG_INFO(F("Client disconnected."));
 
 		// Client not connected
 		currentClient.stop();
 	}
 	else
 	{
-		// Client connected, but no client available
-		status = PortalStatusCode::AP_NO_CLIENT;
+		// Device connected, but no client available
+		status = PortalStatusCode::NO_CLIENT;
+	}
+
+	return status;
+}
+
+
+
+/**
+ * Handles captive portal client. Ensures we're connected to an AP
+ * and waits for a client connection.
+ */
+PortalStatusCode PortalWebServer::handleClient()
+{
+	PortalStatusCode status = PortalStatusCode::FAIL;
+
+	// compare the previous status to the current status
+	if (wifiStatus != WiFi.status())
+	{
+		// Wifi status has changed - capture change
+		wifiStatus = WiFi.status();
+
+		if (wifiStatus == WL_CONNECTED)
+		{
+			status = PortalStatusCode::CONNECTED;
+			LOG_INFO(F("Connected to AP"));
+		}
+		else
+		{
+			// a device has disconnected from the AP
+			status = PortalStatusCode::NOT_CONNECTED;
+			LOG_INFO(F("Not connected to AP"));
+		}
+	}
+
+	WiFiClient client = wifiServer.available();
+	if (client)
+	{
+		LOG_INFO(F("New Client"));
+		currentClient = client;
+		status = PortalStatusCode::CLIENT_CONNECTED;
+		setSystemStatus( SystemStatus::CONFIGURING );
+		while( currentClient.connected() )
+		{
+			if (currentClient.available())
+			{
+				boolean parse = parseHttpRequest();
+				if (parse == true)
+				{
+					status = handlePortalRequest();
+
+				} // end if parse
+				else
+				{
+					LOG_ERROR(F("Error Parsing Request"));
+					status = PortalStatusCode::PARSE_ERROR;
+					break;
+				}
+
+			} // end if available
+
+		} // end if connected
+
+		// TODO - is this an error condition?
+		LOG_INFO(F("Client disconnected."));
+
+		// Client not connected
+		currentClient.stop();
+	}
+	else
+	{
+		// Device connected, but no client available
+		status = PortalStatusCode::NO_CLIENT;
+	}
+
+	return status;
+}
+
+
+
+
+/**
+ * Handles requests while in normal mode.  Sends
+ * request based on URI to correct handler
+ *
+ */PortalStatusCode PortalWebServer::handlePortalRequest()
+{
+	PortalStatusCode status = PortalStatusCode::FAIL;
+
+	LOG_INFO2("handlePortalRequest: '", currentUri, "'");
+
+	if(currentUri == "/" || currentUri == "/hotspot-detect.html")
+	{
+		status = sendConfigForm();
+	}
+	else if(currentUri == "/save_config")
+	{
+		status = handleConfigSave();
+	}
+	else
+	{
+		LOG_ERROR1("Unhandled request", currentUri);
+		status = PortalStatusCode::UNDEFINED_URL;
+		memset(wifiBuffer,0,MAX_WIFI_BUFFER_SIZE);
+		snprintf( wifiBuffer, MAX_WIFI_BUFFER_SIZE, "Unhandled Request: %s", currentUri.c_str());
+		status = sendHttpResponse(404);
 	}
 
 	return status;
@@ -256,18 +445,16 @@ PortalStatusCode PortalWebServer::handleCaptiveClient()
  */
 PortalStatusCode PortalWebServer::handleCaptiveRequest()
 {
-	LOG_DEBUG("handleCaptiveRequest");
+	LOG_INFO2("handleCaptiveRequest: '", currentUri, "'");
 
 	PortalStatusCode status = PortalStatusCode::FAIL;
 
 	if(currentUri == "/" || currentUri == "/hotspot-detect.html")
 	{
-		LOG_INFO2("Handle Root - '", currentUri, "'");
-		status = handleCaptiveRoot();
+		status = sendConfigForm();
 	}
 	else if(currentUri == "/save_config")
 	{
-		LOG_INFO2("Handle Config Save - '", currentUri, "'");
 		status = handleConfigSave();
 	}
 	else
@@ -276,50 +463,54 @@ PortalStatusCode PortalWebServer::handleCaptiveRequest()
 		status = PortalStatusCode::UNDEFINED_URL;
 		memset(wifiBuffer,0,MAX_WIFI_BUFFER_SIZE);
 		snprintf( wifiBuffer, MAX_WIFI_BUFFER_SIZE, "Unhandled Request: %s", currentUri.c_str());
-		status = send(404);
+		status = sendHttpResponse(404);
 	}
 
 	return status;
 }
 
-PortalStatusCode PortalWebServer::handleCaptiveRoot()
+/**
+ * Sends the setup config form.
+ *
+ */
+PortalStatusCode PortalWebServer::sendConfigForm()
 {
-	LOG_DEBUG("handleCaptiveRoot");
+	LOG_DEBUG("sendConfigForm");
 
 	PortalStatusCode status = PortalStatusCode::FAIL;
-	int bodySize = strlen(root_body);
+	int bodySize = strlen(config_form_body);
 	int maxBodySize = bodySize + (32*11)+6;
 
 	if( maxBodySize < MAX_WIFI_BUFFER_SIZE )
 	{
 		// Clear entire buffer
 		memset(wifiBuffer,0,MAX_WIFI_BUFFER_SIZE);
-//		myConfig.dump();
+
 		// Build body with real values for place holders
-		bodySize = snprintf(wifiBuffer, maxBodySize, root_body,
-				myConfig.getNodeId(),
-				myConfig.getHostName(),
-				myConfig.getAPName(),
-				myConfig.getWifiSsid(),
-				myConfig.getWifiPassword(),
-				myConfig.getWifiTries(),
-				myConfig.getMqttServer(),
-				myConfig.getMqttPort(),
-				myConfig.getMqttUser(),
-				myConfig.getMqttPassword(),
-				myConfig.getMqttTries(),
-				myConfig.getMyChannel(),
-				myConfig.getRegistrationChannel(),
-				myConfig.getMyResponseChannel(),
-				myConfig.getAllChannel());
+		bodySize = snprintf(wifiBuffer, maxBodySize, config_form_body,
+				config->getNodeId(),
+				config->getHostName(),
+				config->getAPName(),
+				config->getWifiSsid(),
+				config->getWifiPassword(),
+				config->getWifiTries(),
+				config->getMqttServer(),
+				config->getMqttPort(),
+				config->getMqttUser(),
+				config->getMqttPassword(),
+				config->getMqttTries(),
+				config->getMyChannel(),
+				config->getRegistrationChannel(),
+				config->getMyResponseChannel(),
+				config->getAllChannel());
 
 		if( bodySize > 0 && bodySize < MAX_WIFI_BUFFER_SIZE )
 		{
-			status = sendResponse(wifiBuffer);
+			status = sendHttpResponse((char *)config_form_head, wifiBuffer);
 		}
 		else
 		{
-			LOG_ERROR("ERROR - could not create body content");
+			LOG_ERROR("ERROR - could not create config body content");
 			status = PortalStatusCode::ERROR_BUILDING_RESPONSE;
 
 		} // end if sprintf size > 0
@@ -339,7 +530,8 @@ PortalStatusCode PortalWebServer::handleConfigSave()
 	LOG_DEBUG("handleConfigSave");
 
 	PortalStatusCode status = PortalStatusCode::FAIL;
-	const char* response = config_failed;
+	const char* response_head = config_save_head;
+	const char* response_body = config_save_failed;
 
 	// Pull parameters
 	LOG_DEBUG1(F("Parameter Size: "), currentParameterSize);
@@ -351,63 +543,63 @@ PortalStatusCode PortalWebServer::handleConfigSave()
 
 			if(currentParameters[i].key == "nid")
 			{
-				myConfig.setNodeId( currentParameters[i].value.toInt() );
+				config->setNodeId( currentParameters[i].value.toInt() );
 			}
 			else if(currentParameters[i].key == "hn")
 			{
-				myConfig.setHostName( (uint8_t *)currentParameters[i].value.c_str() );
+				config->setHostName( (uint8_t *)currentParameters[i].value.c_str() );
 			}
 			else if(currentParameters[i].key == "apn")
 			{
-				myConfig.setAPName( (uint8_t *)currentParameters[i].value.c_str() );
+				config->setAPName( (uint8_t *)currentParameters[i].value.c_str() );
 			}
 			else if (currentParameters[i].key == "wssid")
 			{
-				myConfig.setWifiSsid((uint8_t *)currentParameters[i].value.c_str());
+				config->setWifiSsid((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else if (currentParameters[i].key == "wpass")
 			{
-				myConfig.setWifiPassword((uint8_t *)currentParameters[i].value.c_str());
+				config->setWifiPassword((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else if (currentParameters[i].key == "wtry")
 			{
-				myConfig.setWifiTries(currentParameters[i].value.toInt());
+				config->setWifiTries(currentParameters[i].value.toInt());
 			}
 			else if (currentParameters[i].key == "mserv")
 			{
-				myConfig.setMqttServer((uint8_t *)currentParameters[i].value.c_str());
+				config->setMqttServer((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else if (currentParameters[i].key == "muser")
 			{
-				myConfig.setMqttUser((uint8_t *)currentParameters[i].value.c_str());
+				config->setMqttUser((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else if (currentParameters[i].key == "mpass")
 			{
-				myConfig.setMqttPassword((uint8_t *)currentParameters[i].value.c_str());
+				config->setMqttPassword((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else if (currentParameters[i].key == "mport")
 			{
-				myConfig.setMqttPort(currentParameters[i].value.toInt());
+				config->setMqttPort(currentParameters[i].value.toInt());
 			}
 			else if (currentParameters[i].key == "mtry")
 			{
-				myConfig.setMqttTries(currentParameters[i].value.toInt());
+				config->setMqttTries(currentParameters[i].value.toInt());
 			}
 			else if (currentParameters[i].key == "mch")
 			{
-				myConfig.setMyChannel((uint8_t *)currentParameters[i].value.c_str());
+				config->setMyChannel((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else if (currentParameters[i].key == "regch")
 			{
-				myConfig.setRegistrationChannel((uint8_t *)currentParameters[i].value.c_str());
+				config->setRegistrationChannel((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else if (currentParameters[i].key == "respch")
 			{
-				myConfig.setMyResponseChannel((uint8_t *)currentParameters[i].value.c_str());
+				config->setMyResponseChannel((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else if (currentParameters[i].key == "ach")
 			{
-				myConfig.setAllChannel((uint8_t *)currentParameters[i].value.c_str());
+				config->setAllChannel((uint8_t *)currentParameters[i].value.c_str());
 			}
 			else
 			{
@@ -424,11 +616,11 @@ PortalStatusCode PortalWebServer::handleConfigSave()
 
 		// Set status code
 		status = PortalStatusCode::CONFIG_SUCCESS;
-		response = config_success;
+		response_body = config_save_success;
 
 	} // end if param count > 0
 
-	if( sendResponse((char *)response) == PortalStatusCode::SUCCESS)
+	if( sendHttpResponse((char *)response_head, (char *)response_body) == PortalStatusCode::SUCCESS)
 	{
 		LOG_INFO("Successfully captured new configuration parameters");
 	}
@@ -440,10 +632,10 @@ PortalStatusCode PortalWebServer::handleConfigSave()
 	return status;
 }
 
-
-
-
-boolean PortalWebServer::parseRequest()
+/**
+ * Parse web request
+ */
+boolean PortalWebServer::parseHttpRequest()
 {
 	LOG_DEBUG("parseRequest");
 	boolean status = false;
@@ -634,7 +826,7 @@ boolean PortalWebServer::parseRequest()
 			//parseArguments (searchStr);
 
 			// Parse form elements here
-			if (!parseForm(boundaryStr, contentLength))
+			if (!parseHttpForm(boundaryStr, contentLength))
 			{
 				return false;
 			}
@@ -687,7 +879,7 @@ boolean PortalWebServer::parseRequest()
  * This method parses an HTML form post where post attributes are
  * separated by boundaries
  */
-bool PortalWebServer::parseForm(String boundary, uint32_t len)
+bool PortalWebServer::parseHttpForm(String boundary, uint32_t len)
 {
 
 	LOG_DEBUG1(F("Boundary: "), boundary);
@@ -845,11 +1037,11 @@ String PortalWebServer::urlDecode(const String& text)
   return decoded;
 }
 
-PortalStatusCode PortalWebServer::sendResponse(char *buf)
+PortalStatusCode PortalWebServer::sendHttpResponse(char *head, char *body)
 {
 	PortalStatusCode status = PortalStatusCode::FAIL;
 
-	int bodySize = strlen(buf);
+	int bodySize = strlen(body);
 	int headSize = strlen(head);
 	int contentSize = headSize + bodySize;
 	int sent = 0;
@@ -868,8 +1060,8 @@ PortalStatusCode PortalWebServer::sendResponse(char *buf)
 	{
 		// NOTE: WIFI board was not sending all the bytes
 		//       when buffer > 3893, so I send one at a time
-		//       which fixed the problem.
-		sent = sendBuffer(buf, bodySize);
+		//       which fixed the problem, but it is SUPER slow.
+		sent = sendBuffer(body, bodySize);
 //		int bytes = 0;
 //		for(int i=0; i<bodySize; i++)
 //		{
@@ -909,8 +1101,10 @@ PortalStatusCode PortalWebServer::sendResponse(char *buf)
 
 }
 
-
-PortalStatusCode PortalWebServer::send(int statusCode)
+/**
+ * Sends a canned HTTP response
+ */
+PortalStatusCode PortalWebServer::sendHttpResponse(int statusCode)
 {
 	PortalStatusCode status = PortalStatusCode::FAIL;
 
@@ -956,8 +1150,13 @@ PortalStatusCode PortalWebServer::send(int statusCode)
 
 	return status;
 }
+
 /**
- * Sends buffer to web client one byte at a time
+ * Sends buffer to web client
+ *
+ * NOTE: changed to send one byte at a time -
+ * for some reason the WIFI board would not send more than 3700
+ * bytes reliably
  */
 int PortalWebServer::sendBuffer(char *buf, int size)
 {
@@ -981,7 +1180,10 @@ int PortalWebServer::sendBuffer(char *buf, int size)
 
 }
 
-
+/**
+ * Returns string equivalent of status code
+ *
+ */
 String PortalWebServer::toString(PortalStatusCode c)
 {
 	String s = "";
@@ -1005,8 +1207,11 @@ String PortalWebServer::toString(PortalStatusCode c)
 	case PortalStatusCode::AP_ERROR:
 		s = String(F("AP_ERROR"));
 		break;
-	case PortalStatusCode::AP_NO_CLIENT:
-		s = String(F("AP_NO_CLIENT"));
+	case PortalStatusCode::NO_CLIENT:
+		s = String(F("NO_CLIENT"));
+		break;
+	case PortalStatusCode::NO_DEVICE:
+		s = String(F("NO_DEVICE"));
 		break;
 	case PortalStatusCode::AP_NO_CLIENT_ERROR:
 		s = String(F("AP_NO_CLIENT_ERROR"));
@@ -1040,6 +1245,15 @@ String PortalWebServer::toString(PortalStatusCode c)
 		break;
 	case PortalStatusCode::UNDEFINED_URL:
 		s = String(F("UNDEFINED_URL"));
+		break;
+	case PortalStatusCode::AP_LISTENING:
+		s = String(F("AP_LISTENING"));
+		break;
+	case PortalStatusCode::DEVICE_CONNECTED:
+		s = String(F("DEVICE_CONNECTED"));
+		break;
+	case PortalStatusCode::CLIENT_CONNECTED:
+		s = String(F("CLIENT_CONNECTED"));
 		break;
 	default:
 		break;

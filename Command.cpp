@@ -25,6 +25,8 @@ void Command::initialize()
 {
 	command = Clear;
 	memset(text, 0, CMD_STRING_SIZE);
+	memset(key, 0, CMD_STRING_SIZE);
+	memset(value, 0, CMD_STRING_SIZE);
 	x = 0;
 	y = 0;
 	x1 = 0;
@@ -76,6 +78,8 @@ boolean Command::parse(uint8_t* b)
 #endif
 		command = doc[KEY_CMD];
 		strlcpy((char *)text,doc[KEY_STRING],sizeof(text));
+		strlcpy((char *)key,doc[KEY_KEY],sizeof(key));
+		strlcpy((char *)value,doc[KEY_VALUE],sizeof(value));
 		x = doc[KEY_X];
 		y = doc[KEY_Y];
 		x1 = doc[KEY_X1];
@@ -113,6 +117,8 @@ boolean Command::buildCommand(uint8_t *buffer)
 	doc.clear();
 	doc[KEY_CMD] = command;
 	doc[KEY_STRING] = text;
+	doc[KEY_KEY] = key;
+	doc[KEY_VALUE] = value;
 	doc[KEY_X] = x;
 	doc[KEY_Y] = y;
 	doc[KEY_X1] = x1;
@@ -186,6 +192,10 @@ void Command::dump()
 	Serial.print( command, HEX );
 	Serial.print(", string: ");
 	Serial.print( (char *)text );
+	Serial.print(", key: ");
+	Serial.print( (char *)key );
+	Serial.print(", value: ");
+	Serial.print( (char *)value );
 	Serial.print(", x: ");
 	Serial.print( x );
 	Serial.print(", y: ");
@@ -256,6 +266,26 @@ uint8_t* Command::getText()
 void Command::setText(uint8_t* s)
 {
 	strlcpy((char *)text, (char *)s, sizeof(text));
+}
+
+uint8_t* Command::getKey()
+{
+	return key;
+}
+
+void Command::setKey(uint8_t* s)
+{
+	strlcpy((char *)key, (char *)s, sizeof(key));
+}
+
+uint8_t* Command::getValue()
+{
+	return value;
+}
+
+void Command::setValue(uint8_t* s)
+{
+	strlcpy((char *)value, (char *)s, sizeof(value));
 }
 
 uint8_t Command::getX() const

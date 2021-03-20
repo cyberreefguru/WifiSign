@@ -6,21 +6,27 @@ static Configuration config;
 static PubSubWrapper pubsubw;
 static WifiWrapper wifiw;
 static MatrixWrapper matrix;
+static PortalWebServer pws;
 
 // Indicates we have a command waiting for processing
 static volatile boolean commandAvailable = false;
 
+// Indicates we have an error that should stop processing
+static volatile SystemStatus systemStatus = SystemStatus::UNKNOWN;
+
 volatile uint8_t wifiImageCount = 0;
 volatile uint8_t mqttImageCount = 0;
 
-boolean initialized = false;
-boolean showWifiInit = false;
-boolean showMqttInit = false;
+volatile boolean initialized = false;
+volatile boolean showWifiInit = false;
+volatile boolean showMqttInit = false;
 
 // Internal functions
 void parseCommand();
 boolean initialize();
 void startupPause();
+void handleConfigurationPortal(PortalStatusCode status);
+void runCaptivePortal();
 
 /**
  * Setup function
@@ -28,6 +34,8 @@ void startupPause();
  */
 void setup()
 {
+	setSystemStatus( SystemStatus::BOOTING );
+
 	// Configure serial port
 	Serial.begin(115200);
 
@@ -43,6 +51,9 @@ void setup()
 	showWifiInit = true;
 	showMqttInit = true;
 
+	// Set the configuration for the portal
+	pws.setConfiguration(&config);
+
 	// Initialize the configuration object; configs stored in Flash
 	LOG_DEBUG( F("Initializing configuration...") );
     if( config.initialize(true) == ConfigStatusCode::OK)
@@ -52,20 +63,40 @@ void setup()
     }
     else
     {
-    	runConfigurationPortal();
+		LOG_INFO("No configuration - running captive portal")
+		runCaptivePortal(); // this function never returns!
     }
 
 	// Initialize wifi, pubsub, and LEDs
 	if( !initialize() )
 	{
-		runConfigurationPortal();
-		LOG_INFO("Successfully saved configuration; must reboot")
-		Helper::error(); // never returns
+		LOG_INFO("Unable to initialize - running captive portal")
+		runCaptivePortal(); // this function never returns!
 	}
+	else
+	{
+		LOG_INFO(F("Starting configuration portal..."));
+		PortalStatusCode psc = pws.setupPortal();
+		if( psc == PortalStatusCode::SUCCESS )
+		{
+			initialized = true;
+			showWifiInit = false;
+			showMqttInit = false;
 
-	initialized = true;
-	showWifiInit = false;
-	showMqttInit = false;
+			// Successfully initialized - put a message in the queue showing our IP address
+			IPAddress ip = wifiw.getIpAddress();
+			sprintf((char *)pubsubw.getBuffer(), CMD_SHOW_IP_ADDRESS, ip[0],ip[1],ip[2],ip[3], config.getMqttServer(), config.getMqttPort() );
+			Serial.println((char *)pubsubw.getBuffer());
+			setSystemStatus( SystemStatus::COMMAND_AVAILABLE );
+			LOG_INFO("Ready!");
+		}
+		else
+		{
+			sprintf((char *)pubsubw.getBuffer(), CMD_SHOW_PORTAL_FAIL, pws.toString(psc) );
+			Serial.println((char *)pubsubw.getBuffer());
+			setSystemStatus( SystemStatus::COMMAND_AVAILABLE );
+		}
+	}
 
     Serial.println(F("** Initialization Complete **"));
 
@@ -80,29 +111,40 @@ void loop()
 	// calls yield and other must run code
 	worker();
 
-	if(wifiw.connected() == false )
+	if( getSystemStatus() == SystemStatus::WIFI_RECONNECTION )
 	{
-		LOG_ERROR("Lost WIFI connection!");
-		wifiw.initializeWifi(); // TODO - ensure this doesn't screw things up
+		LOG_INFO("Reconnecting to WIFI");
+		showWifiInit = false;
+		matrix.clear();
+		matrix.print(0, 8, 0x00ff0000, F("Lost"), false);
+		matrix.print(0, 17, 0x00ff0000, F("WIFI"), false);
+		matrix.print(0, 26, 0x00ff0000, F("Connection"), true);
+		if( wifiw.initializeWifi() == WifiStatusCode::CONNECTED)
+		{
+			matrix.clear();
+		}
+		else
+		{
+			matrix.print(0, 8, 0x00ff0000, F("WIFI Error"), false);
+			matrix.print(0, 17, 0x00ff0000, F("Please"), false);
+			matrix.print(0, 26, 0x00ff0000, F("Reboot"), true);
+			Helper::error();
+		}
 	}
-	if( pubsubw.connected() == false )
+	else if( getSystemStatus() == SystemStatus::MQTT_RECONNECTION )
 	{
-		LOG_ERROR("Lost MQTT connection!");
+		LOG_INFO("Reconnecting to MQTT");
+		showMqttInit = false;
 		matrix.clear();
 		matrix.print(0, 8, 0x00ff0000, F("Lost"), false);
 		matrix.print(0, 17, 0x00ff0000, F("Queue"), false);
 		matrix.print(0, 26, 0x00ff0000, F("Connection"), true);
-		delay(5000);
-		matrix.clear();
-		showMqttInit = true;
+
 		if( pubsubw.connect() )
 		{
-			delay(1000);
 			matrix.clear();
 			matrix.print(0, 8, 0x0000ff, F("Queue"), false);
-			matrix.print(0, 17, 0x0000ff, F("Connected"), true);
-			delay(5000);
-			matrix.clear();
+			matrix.print(0, 17, 0x0000ff, F("Reconnected"), true);
 		}
 		else
 		{
@@ -110,14 +152,25 @@ void loop()
 			matrix.print(0, 8, 0x0000ff, F("Queue"), false);
 			matrix.print(0, 17, 0x000ff, F("Connection"), false);
 			matrix.print(0, 26, 0x0000ff, F("FAILED"), true);
+			Helper::error();
 		}
 	}
 
 	// Check if command is available
 	if( isCommandAvailable() )
 	{
-		parseCommand();
+		if( getSystemStatus() == SystemStatus::COMMAND_AVAILABLE )
+		{
+			parseCommand();
+		}
 	}
+
+	PortalStatusCode status = pws.handleClient();
+	if(status == PortalStatusCode::CONFIG_SUCCESS || status == PortalStatusCode::CONFIG_FAIL)
+	{
+		handleConfigurationPortal(status);
+	}
+
 
 } // end loop
 
@@ -129,12 +182,12 @@ boolean initialize()
 {
 	boolean configured = false;
 
-	wifiw.setRetryCount(20);
-	wifiw.setRetryDelay(250);
+	wifiw.setRetryCount(config.getWifiTries());
+	wifiw.setRetryDelay(250); // TODO - put retry delay in config file
 	wifiw.setConnectionStatusCallback(wifiConnectionStatusCallback);
 
-	pubsubw.setRetryCount(20);
-	pubsubw.setRetryDelay(250);
+	pubsubw.setRetryCount(config.getMqttTries());
+	pubsubw.setRetryDelay(250); // TODO - put retry delay in config file
 	pubsubw.setConnectionStatusCallback(mqttConnectionStatusCallback);
 
 	Serial.println(F("Configuring matrix..."));
@@ -144,7 +197,7 @@ boolean initialize()
 		matrix.test();
 
 		// Set up screen
-		matrix.drawImage((char *)F("/resources/wifi-grey-0.bmp"), 0, 0, true);
+		matrix.drawImage((char *)IMAGE_WIFI_GREY_0, 0, 0, true);
 		matrix.print(2, matrix.getHeight()-1, 0x00FFFFFF, F("WIFI"), true);
 		matrix.drawImage((char *)F("/resources/wifi-grey-0.bmp"), 32, 0, true);
 		matrix.print(33, matrix.getHeight()-1, 0x00FFFFFF, F("MQTT"), true);
@@ -154,35 +207,26 @@ boolean initialize()
 		if( wifiw.initializeWifi(&config) == WifiStatusCode::CONNECTED)
 		{
 			wifiImageCount = 0;
-			matrix.drawImage((char *)F("/resources/wifi-green-4.bmp"), 0, 0, true);
+			matrix.drawImage((char *)IMAGE_WIFI_GREEN_4, 0, 0, true);
 
 			// Initialize pubsub
 			Serial.println(F("Configuring queue..."));
 			if( pubsubw.initialize(&config, &wifiw) )
 			{
-				matrix.drawImage((char *)F("/resources/wifi-purple-4.bmp"), 32, 0, true);
-
-				char ip[16];
-				memset(ip, 0, sizeof(char)*16);
-				Helper::toString(ip,  wifiw.getIpAddress());
-
-				sprintf((char *)pubsubw.getBuffer(), CMD_IP_ADDRESS, ip, config.getMqttServer(), config.getMqttPort() );
-				Serial.println((char *)pubsubw.getBuffer());
-				setCommandAvailable(true);
-
+				matrix.drawImage((char *)IMAGE_WIFI_PURPLE_4, 32, 0, true);
 				configured = true;
 
 			}
 			else
 			{
 				LOG_ERROR(F("Failed to configure queue"));
-				matrix.drawImage((char *)F("/resources/wifi-red-4.bmp"), 32, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_RED_4, 32, 0, true);
 			}
 		}
 		else
 		{
 			LOG_ERROR(F("Failed to configure WIFI"));
-			matrix.drawImage((char *)F("/resources/wifi-red-4.bmp"), 0, 0, true);
+			matrix.drawImage((char *)IMAGE_WIFI_RED_4, 0, 0, true);
 		}
 	}
 	else
@@ -195,16 +239,21 @@ boolean initialize()
 } // end initialize
 
 
-void runConfigurationPortal()
+void runCaptivePortal()
 {
-    PortalWebServer pws;
-    PortalStatusCode status = pws.runCaptivePortal();
-    matrix.clear();
+	setSystemStatus( SystemStatus::CONFIGURING );
+
+	PortalStatusCode status = PortalStatusCode::FAIL;
+	status = pws.runCaptivePortal();
+	handleConfigurationPortal(status);
+}
+
+void handleConfigurationPortal(PortalStatusCode status)
+{
+	pws.stop(); // kill connections
+	matrix.clear();
     if( status == PortalStatusCode::CONFIG_SUCCESS )
     {
-    	// Copy our new configuration to existing configuration
-    	pws.setConfiguration(config);
-
 		// Save new config file.
 		ConfigStatusCode c = config.write();
 		if( c == ConfigStatusCode::OK )
@@ -225,10 +274,10 @@ void runConfigurationPortal()
     {
     	LOG_ERROR("Unable to capture configuration");
 		matrix.print(0,  8,  0x00ff0000, F("Error"), false);
-		matrix.print(0,  17,  0x00ff0000, F("Configuring"), true);
+		matrix.print(0,  17,  0x00ff0000, F("Getting"), true);
+		matrix.print(0,  26,  0x000000ff, F("Config"), true);
     }
 	Helper::error(); // never returns
-
 }
 
 /**
@@ -251,15 +300,14 @@ void worker()
 		}
 		else
 		{
-			setCommandAvailable(true); // stop on-going processing
-			//statusIndicator.setStatus(Queue, Error);
-			pubsubw.connect();
+			LOG_WARN("Queue disconnected.");
+			setSystemStatus( SystemStatus::MQTT_RECONNECTION );
 		}
 	}
 	else
 	{
-		setCommandAvailable(true); // stop on-going processing
-		//statusIndicator.setStatus(Wifi, Error);
+		LOG_WARN("Wifi disconnected.");
+		setSystemStatus( SystemStatus::WIFI_RECONNECTION );
 	}
 	return;
 }
@@ -270,16 +318,21 @@ void worker()
  */
 void parseCommand()
 {
+	// Just a little CYA
+	if(getSystemStatus() != SystemStatus::COMMAND_AVAILABLE )
+	{
+		LOG_WARN("parseCommand called but COMMAND_AVAILABLE not set");
+		return;
+	}
+
 	Command cmd;
+	ConfigStatusCode csc = ConfigStatusCode::OK;
 
 	// Reset command available flag
-	setCommandAvailable(false);
-	//setStatus(Processing);
+	//setCommandAvailable(false);
+	setSystemStatus(SystemStatus::PROCESSING);
 
-#ifdef __DEBUG
-	Serial.print( millis() );
-	Serial.print(F(" - parsing command..."));
-#endif
+	LOG_DEBUG1( millis(), " - parsing command...");
 
 	if( cmd.parse( (uint8_t *)pubsubw.getBuffer() ) )
 	{
@@ -328,11 +381,27 @@ void parseCommand()
 			break;
 		case SetImage:
 			Serial.println(F("Command: SetImage"));
-			matrix.drawImage((ImageEnum)cmd.getIndex(), cmd.getShow());
+			// TODO: use draw from file
+//			matrix.drawImage((ImageEnum)cmd.getIndex(), cmd.getShow());
 			break;
 		case Animate:
 			Serial.println(F("Command: Animate"));
 			matrix.animate( (AnimateEnum)cmd.getIndex(), cmd.getOnDuration());
+			break;
+		case SetConfigValue:
+			Serial.println(F("Command: SetConfigValue"));
+			matrix.clear();
+			matrix.print(0, 8, 0x0000ff, F("Config"), false);
+			matrix.print(0, 17, 0x0000ff, F("Value:"), true);
+			csc = config.setConfigurationValue(cmd.getKey(), cmd.getValue() );
+			if( csc == ConfigStatusCode::OK )
+			{
+				matrix.print(0, 26, 0x00ff00, F("SUCCESS"), true);
+			}
+			else
+			{
+				matrix.print(0, 26, 0x00ff0000, F("FAILED"), true);
+			}
 			break;
 		case Response:
 			Serial.println(F("Command: Response"));
@@ -348,19 +417,39 @@ void parseCommand()
 		Serial.println(F("ERROR - Unable to parse command"));
 	}
 
-
 	Serial.print( millis() );
 	Serial.println(F(" - Command Complete"));
 
-	//setStatus(Waiting);
+	setSystemStatus(SystemStatus::WAITING);
 }
+
+/**
+ * Gets the system status variable
+ */
+SystemStatus getSystemStatus()
+{
+	return systemStatus;
+}
+
+/**
+ * Sets the system status variable
+ */
+void setSystemStatus(SystemStatus status)
+{
+	systemStatus = status;
+}
+
 
 /**
  * Returns flag; true=new command is available
  */
 boolean isCommandAvailable()
 {
-	return commandAvailable;
+	// Return true if command is available or some sort of connection issue
+	return (getSystemStatus() == SystemStatus::COMMAND_AVAILABLE ||
+			getSystemStatus() == SystemStatus::WIFI_RECONNECTION ||
+			getSystemStatus() == SystemStatus::MQTT_RECONNECTION );
+//	return commandAvailable;
 }
 
 /**
@@ -369,7 +458,15 @@ boolean isCommandAvailable()
  */
 void setCommandAvailable(boolean flag)
 {
-	commandAvailable = flag;
+	if( flag )
+	{
+		setSystemStatus(SystemStatus::COMMAND_AVAILABLE);
+	}
+	else
+	{
+		setSystemStatus(SystemStatus::WAITING);
+	}
+//	commandAvailable = flag;
 }
 
 
@@ -434,28 +531,28 @@ void wifiConnectionStatusCallback()
 		{
 			case 0:
 				// Set image to 1
-				matrix.drawImage((char *)"/resources/wifi-green-1.bmp", 0, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_GREEN_1, 0, 0, true);
 
 				// Set next image to 2
 				wifiImageCount=1;
 				break;
 			case 1:
 				// Set image to 2
-				matrix.drawImage((char *)"/resources/wifi-green-2.bmp",  0, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_GREEN_2,  0, 0, true);
 
 				// Set next image to 3
 				wifiImageCount=2;
 				break;
 			case 2:
 				// Set image to 3
-				matrix.drawImage((char *)"/resources/wifi-green-3.bmp",  0, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_GREEN_3,  0, 0, true);
 
 				// Set next image to 2
 				wifiImageCount=3;
 				break;
 			case 3:
 				// Set image to full
-				matrix.drawImage((char *)"/resources/wifi-green-4.bmp",  0, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_GREEN_4,  0, 0, true);
 
 				// set next image to 1
 				wifiImageCount=0;
@@ -479,28 +576,28 @@ void mqttConnectionStatusCallback()
 		{
 			case 0:
 				// Set image to 1
-				matrix.drawImage((char *)"/resources/wifi-purple-1.bmp", 32, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_PURPLE_1, 32, 0, true);
 
 				// Set next image to 2
 				wifiImageCount=1;
 				break;
 			case 1:
 				// Set image to 2
-				matrix.drawImage((char *)"/resources/wifi-purple-2.bmp",  32, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_PURPLE_2,  32, 0, true);
 
 				// Set next image to 3
 				wifiImageCount=2;
 				break;
 			case 2:
 				// Set image to 3
-				matrix.drawImage((char *)"/resources/wifi-purple-3.bmp",  32, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_PURPLE_3,  32, 0, true);
 
 				// Set next image to 2
 				wifiImageCount=3;
 				break;
 			case 3:
 				// Set image to full
-				matrix.drawImage((char *)"/resources/wifi-purple-4.bmp",  32, 0, true);
+				matrix.drawImage((char *)IMAGE_WIFI_PURPLE_4,  32, 0, true);
 
 				// set next image to 1
 				wifiImageCount=0;

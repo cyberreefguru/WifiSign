@@ -221,6 +221,179 @@ void Configuration::setMyResponseChannel(uint8_t *b)
 	strcpy( (char *)myResponseChannel, (char *)b );
 }
 
+
+ConfigStatusCode Configuration::setConfigurationValue(uint8_t *key, uint8_t *value)
+{
+	ConfigStatusCode sc = ConfigStatusCode::FAIL;
+
+	if( key == NULL )
+	{
+		LOG_ERROR("key not defined");
+		return ConfigStatusCode::KEY_NOT_DEFINED;
+	}
+
+	if( value == NULL )
+	{
+		LOG_ERROR("value not defined");
+		return ConfigStatusCode::VALUE_NOT_DEFINED;
+	}
+
+	LOG_DEBUG4(F("Key: '"), (char *)key, F("' Value: '"), (char *)value, F("'"));
+
+	int8_t len = strlen( (char *)value);
+	if( len <= 0 || len > 32)
+	{
+		LOG_ERROR("Illegal size for value");
+		return ConfigStatusCode::ILLEGAL_VALUE;
+	}
+
+	sc = ConfigStatusCode::OK;
+
+	if( strcmp( (char*)KEY_NODE_ID, (char*)key) == 0 )
+	{
+		uint8_t id = atoi((char *)value);
+		if( id != 0 )
+		{
+			setNodeId( id );
+			LOG_DEBUG1("Set Node ID: ", id);
+		}
+		else
+		{
+			LOG_ERROR("Illegal value for Node ID");
+			sc = ConfigStatusCode::ILLEGAL_VALUE;
+		}
+	}
+	else if( strcmp( (char*)KEY_HOST_NAME, (char*)key) == 0 )
+	{
+		setHostName( value );
+		LOG_DEBUG1("Set Host Name: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_AP_NAME, (char*)key) == 0)
+	{
+		setAPName( value );
+		LOG_DEBUG1("Set AP Name: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_WIFI_RETRIES, (char*)key) == 0 )
+	{
+		uint8_t id = atoi((char *)value);
+		if( id != 0 )
+		{
+			setWifiTries( id );
+			LOG_DEBUG1("Set WIFI Tries: ", id);
+		}
+		else
+		{
+			LOG_ERROR("Illegal value for WIFI retries");
+			sc = ConfigStatusCode::ILLEGAL_VALUE;
+		}
+	}
+	else if( strcmp( (char*)KEY_WIFI_SSID, (char*)key) == 0 )
+	{
+		setWifiSsid( value );
+		LOG_DEBUG1("Set Wifi SSID: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_WIFI_PASSWORD, (char*)key) == 0 )
+	{
+		setWifiPassword( value );
+		LOG_DEBUG1("Set Wifi Password: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_WEB_PORT, (char*)key) == 0 )
+	{
+		uint8_t id = atoi((char *)value);
+		if( id != 0 )
+		{
+			setWebPort( id );
+			LOG_DEBUG1("Set Web Port: ", id);
+		}
+		else
+		{
+			LOG_ERROR("Illegal value for web port");
+			sc = ConfigStatusCode::ILLEGAL_VALUE;
+		}
+	}
+	else if( strcmp( (char*)KEY_MQTT_TRIES, (char*)key) == 0 )
+	{
+		uint8_t id = atoi((char *)value);
+		if( id != 0 )
+		{
+			setMqttTries( id );
+			LOG_DEBUG1("Set Wifi Retries: ", id);
+		}
+		else
+		{
+			LOG_ERROR("Illegal value for MQTT values");
+			sc = ConfigStatusCode::ILLEGAL_VALUE;
+		}
+	}
+	else if( strcmp( (char*)KEY_MQTT_SERVER, (char*)key) == 0 )
+	{
+		setMqttServer( value );
+		LOG_DEBUG1("Set MQTT Server: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_MQTT_PORT, (char*)key) == 0 )
+	{
+		uint8_t id = atoi((char *)value);
+		if( id != 0 )
+		{
+			setMqttPort( id );
+			LOG_DEBUG1("Set MQTT Port: ", id);
+		}
+		else
+		{
+			LOG_ERROR("Illegal value for MQTT Port");
+			sc = ConfigStatusCode::ILLEGAL_VALUE;
+		}
+	}
+	else if( strcmp( (char*)KEY_MQTT_USER, (char*)key) == 0 )
+	{
+		setMqttUser( value );
+		LOG_DEBUG1("Set MQTT User: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_MQTT_PASSWORD, (char*)key) == 0 )
+	{
+		setMqttPassword( value );
+		LOG_DEBUG1("Set MQTT Password: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_MQTT_CHANNEL_ALL, (char*)key) == 0 )
+	{
+		setAllChannel( value );
+		LOG_DEBUG1("Set MQTT All: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_MQTT_CHANNEL_REG, (char*)key) == 0 )
+	{
+		setRegistrationChannel( value );
+		LOG_DEBUG1("Set MQTT Req: ", (char*)value);
+	}
+	else if( strcmp( (char*)KEY_MQTT_CHANNEL_RESPONSE, (char*)key) == 0 )
+	{
+		setMyResponseChannel( value );
+		LOG_DEBUG1("Set MQTT Resp: ", (char*)value);
+	}
+	else
+	{
+		LOG_ERROR("Unknown key");
+		sc = ConfigStatusCode::UNKNOWN_KEY;
+	}
+
+	if( sc == ConfigStatusCode::OK)
+	{
+		sc = write();
+		if( sc != ConfigStatusCode::OK)
+		{
+			LOG_ERROR("Error updating config file");
+		}
+	}
+	else
+	{
+		LOG_ERROR("Error attempting to set config value");
+	}
+
+
+	return sc;
+}
+
+
+
 /**
  * Reads the configuration
  *

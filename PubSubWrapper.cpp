@@ -107,7 +107,7 @@ uint8_t PubSubWrapper::connect()
 			else
 			{
 				// Wait before retrying
-//				Helper::delayYield(retryDelay);
+				Helper::delayYield(retryDelay);
 			}
 			count += 1;
 

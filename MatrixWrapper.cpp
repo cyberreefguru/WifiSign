@@ -16,9 +16,6 @@ uint8_t oePin      = 16;
 
 Adafruit_Protomatter matrix(64, 4, 1, rgbPins, 4, addrPins, clockPin, latchPin, oePin, false);
 
-uint16_t* SignImages[] = { (uint16_t*)Record_Red_Bitmap, (uint16_t*)Record_White_Bitmap };
-
-
 /**
  * Constructor
  */
@@ -397,13 +394,14 @@ void MatrixWrapper::testFull()
 
 	test();
 
-	for(uint8_t i=0; i<7; i++)
-	{
-		drawImage(RecordRed, true);
-		delay(250);
-		drawImage(RecordWhite, true);
-		delay(250);
-	}
+	// TODO: replace with draw from file
+//	for(uint8_t i=0; i<7; i++)
+//	{
+//		drawImage(RecordRed, true);
+//		delay(250);
+//		drawImage(RecordWhite, true);
+//		delay(250);
+//	}
 	clear();
 
 	drawLine(0,  matrix.height()-1, 5, 0x00ff0000, Left, false);
@@ -793,14 +791,6 @@ void MatrixWrapper::drawImage(char *fileName, uint8_t x, uint8_t y, boolean s)
 	if(s) show();
 }
 
-
-void MatrixWrapper::drawImage(ImageEnum index, boolean s)
-{
-	clear();
-	matrix.drawRGBBitmap(0, 0, SignImages[index], 64, 32);
-	if(s) show();
-}
-
 void MatrixWrapper::animate(AnimateEnum index, uint32_t delay)
 {
 	boolean flag = false;
@@ -815,12 +805,12 @@ void MatrixWrapper::animate(AnimateEnum index, uint32_t delay)
 //			Serial.println( delay );
 			while(!flag)
 			{
-				drawImage(RecordRed, true);
-				flag = commandDelay( delay);
-				if(flag) break;
-				drawImage(RecordWhite, true);
-				flag = commandDelay( delay);
-				if(flag) break;
+//				drawImage(RecordRed, true);
+//				flag = commandDelay( delay);
+//				if(flag) break;
+//				drawImage(RecordWhite, true);
+//				flag = commandDelay( delay);
+//				if(flag) break;
 			}
 			clear();
 			break;
